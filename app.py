@@ -42,54 +42,53 @@ def load_models():
         if missing_files:
             st.error(f"❌ No se encuentran los archivos: {', '.join(missing_files)}")
             st.info("Asegúrate de que los archivos estén en el mismo directorio que app.py")
-            return None, None, None, None      
-                
+            return None, None, None, None
+        
         # Desactivar warnings
         tf.get_logger().setLevel('ERROR')
         
-        # Definir una versión compatible de InputLayer
-        class InputLayerCompat(layers.InputLayer):
-            @classmethod
-            def from_config(cls, config):
-                # Hacer una copia para no modificar el original
-                config = config.copy()
-
-                # Convertir batch_shape a batch_input_shape si existe (cambio en TF 2.13)
-                if 'batch_shape' in config:
-                    config['batch_input_shape'] = config.pop('batch_shape')
-                
-                # Eliminar 'optional' si existe (no existe en TF 2.13)
-                if 'optional' in config:
-                    del config['optional']
-                
-                # Eliminar otros argumentos que puedan causar problemas
-                if 'ragged' in config and config['ragged'] is False:
-                    del config['ragged']  # TF 2.13 no siempre maneja ragged
-                
-                return super().from_config(config)
-        
-        # Definir una versión compatible de Dense
-        class DenseCompat(layers.Dense):
-            @classmethod
-            def from_config(cls, config):
-                # Eliminar parámetros que no existen en versiones antiguas
-                if 'quantization_config' in config:
-                    del config['quantization_config']
-                return super().from_config(config)
-        
-        # Registrar las clases personalizadas
-        custom_objects = {
-            'InputLayer': InputLayerCompat,
-            'Dense': DenseCompat
-        }
-        
+        # MÉTODO: Cargar solo los pesos y reconstruir la arquitectura
         try:
-            # Intentar carga con custom_objects
-            model = load_model(model_path, custom_objects=custom_objects, compile=False)
-            st.success("✅ Modelo cargado correctamente (con capas compatibles)")
+            # Primero, intentar cargar el modelo completo para obtener la configuración
+            import json
+            import h5py
+            
+            # Leer la configuración del archivo .keras manualmente
+            with h5py.File(model_path, 'r') as f:
+                model_config = json.loads(f.attrs['model_config'])
+            
+            # Obtener la configuración de las capas
+            layers_config = model_config['config']['layers']
+            
+            # Reconstruir el modelo capa por capa
+            reconstructed_model = tf.keras.Sequential()
+            
+            # Agregar InputLayer manualmente
+            input_config = layers_config[0]['config']
+            reconstructed_model.add(tf.keras.layers.InputLayer(
+                batch_input_shape=tuple(input_config['batch_shape']),
+                dtype=input_config['dtype'],
+                name=input_config['name']
+            ))
+            
+            # Agregar las capas Dense
+            for layer_config in layers_config[1:]:
+                config = layer_config['config']
+                if layer_config['class_name'] == 'Dense':
+                    reconstructed_model.add(tf.keras.layers.Dense(
+                        units=config['units'],
+                        activation=config['activation'],
+                        name=config['name']
+                    ))
+            
+            # Cargar los pesos
+            reconstructed_model.load_weights(model_path)
+            
+            model = reconstructed_model
+            st.success("✅ Modelo reconstruido manualmente con pesos cargados")
             
         except Exception as e:
-            st.error(f"❌ Error en carga: {str(e)}")
+            st.error(f"❌ Error en reconstrucción manual: {str(e)}")
             return None, None, None, None
         
         # Recompilar el modelo
