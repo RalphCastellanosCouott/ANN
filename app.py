@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
+import tensorflow as tf
 from tensorflow.keras.models import load_model
 import os
 
@@ -42,14 +43,38 @@ def load_models():
             st.info("Asegúrate de que los archivos estén en el mismo directorio que app.py")
             return None, None, None, None
         
-        # Cargar modelos
-        model = load_model(model_path)
+        # Intentar cargar el modelo con manejo de errores
+        try:
+            # Primer intento: carga normal
+            model = load_model(model_path)
+            st.success("✅ Modelo cargado correctamente (modo normal)")
+        except Exception as e:
+            st.warning(f"⚠️ Error en carga normal: {str(e)[:100]}... Intentando método alternativo...")
+            
+            try:
+                # Segundo intento: carga sin compilar
+                model = load_model(model_path, compile=False)
+                
+                # Recompilar con la configuración original
+                model.compile(
+                    optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
+                    loss='categorical_crossentropy',
+                    metrics=['accuracy']
+                )
+                st.success("✅ Modelo cargado correctamente (modo alternativo)")
+                
+            except Exception as e2:
+                st.error(f"❌ Error también en modo alternativo: {str(e2)}")
+                return None, None, None, None
+        
+        # Cargar los demás artefactos (estos no deberían dar problema)
         scaler = joblib.load(scaler_path)
         pca = joblib.load(pca_path)
         label_encoders = joblib.load(encoders_path)
         
-        st.success("✅ Modelos cargados correctamente")
+        st.success("✅ Todos los modelos cargados correctamente")
         return model, scaler, pca, label_encoders
+        
     except Exception as e:
         st.error(f"❌ Error al cargar los modelos: {str(e)}")
         return None, None, None, None
