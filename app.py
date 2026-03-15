@@ -51,12 +51,21 @@ def load_models():
         class InputLayerCompat(layers.InputLayer):
             @classmethod
             def from_config(cls, config):
-                # Convertir batch_shape a batch_input_shape si es necesario
-                if 'batch_shape' in config and 'batch_input_shape' not in config:
+                # Hacer una copia para no modificar el original
+                config = config.copy()
+
+                # Convertir batch_shape a batch_input_shape si existe (cambio en TF 2.13)
+                if 'batch_shape' in config:
                     config['batch_input_shape'] = config.pop('batch_shape')
-                # Eliminar 'optional' si existe
+                
+                # Eliminar 'optional' si existe (no existe en TF 2.13)
                 if 'optional' in config:
                     del config['optional']
+                
+                # Eliminar otros argumentos que puedan causar problemas
+                if 'ragged' in config and config['ragged'] is False:
+                    del config['ragged']  # TF 2.13 no siempre maneja ragged
+                
                 return super().from_config(config)
         
         # Definir una versión compatible de Dense
