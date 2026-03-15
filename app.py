@@ -4,6 +4,7 @@ import numpy as np
 import joblib
 import tensorflow as tf
 from tensorflow.keras.models import load_model
+from tensorflow.keras import layers
 import os
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
@@ -41,33 +42,55 @@ def load_models():
         if missing_files:
             st.error(f"❌ No se encuentran los archivos: {', '.join(missing_files)}")
             st.info("Asegúrate de que los archivos estén en el mismo directorio que app.py")
+            return None, None, None, None      
+                
+        # Desactivar warnings
+        tf.get_logger().setLevel('ERROR')
+        
+        # Definir una versión compatible de InputLayer
+        class InputLayerCompat(layers.InputLayer):
+            @classmethod
+            def from_config(cls, config):
+                # Convertir batch_shape a batch_input_shape si es necesario
+                if 'batch_shape' in config and 'batch_input_shape' not in config:
+                    config['batch_input_shape'] = config.pop('batch_shape')
+                # Eliminar 'optional' si existe
+                if 'optional' in config:
+                    del config['optional']
+                return super().from_config(config)
+        
+        # Definir una versión compatible de Dense
+        class DenseCompat(layers.Dense):
+            @classmethod
+            def from_config(cls, config):
+                # Eliminar parámetros que no existen en versiones antiguas
+                if 'quantization_config' in config:
+                    del config['quantization_config']
+                return super().from_config(config)
+        
+        # Registrar las clases personalizadas
+        custom_objects = {
+            'InputLayer': InputLayerCompat,
+            'Dense': DenseCompat
+        }
+        
+        try:
+            # Intentar carga con custom_objects
+            model = load_model(model_path, custom_objects=custom_objects, compile=False)
+            st.success("✅ Modelo cargado correctamente (con capas compatibles)")
+            
+        except Exception as e:
+            st.error(f"❌ Error en carga: {str(e)}")
             return None, None, None, None
         
-        # Intentar cargar el modelo con manejo de errores
-        try:
-            # Primer intento: carga normal
-            model = load_model(model_path)
-            st.success("✅ Modelo cargado correctamente (modo normal)")
-        except Exception as e:
-            st.warning(f"⚠️ Error en carga normal: {str(e)[:100]}... Intentando método alternativo...")
-            
-            try:
-                # Segundo intento: carga sin compilar
-                model = load_model(model_path, compile=False)
-                
-                # Recompilar con la configuración original
-                model.compile(
-                    optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
-                    loss='categorical_crossentropy',
-                    metrics=['accuracy']
-                )
-                st.success("✅ Modelo cargado correctamente (modo alternativo)")
-                
-            except Exception as e2:
-                st.error(f"❌ Error también en modo alternativo: {str(e2)}")
-                return None, None, None, None
+        # Recompilar el modelo
+        model.compile(
+            optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
+            loss='categorical_crossentropy',
+            metrics=['accuracy']
+        )
         
-        # Cargar los demás artefactos (estos no deberían dar problema)
+        # Cargar los demás artefactos
         scaler = joblib.load(scaler_path)
         pca = joblib.load(pca_path)
         label_encoders = joblib.load(encoders_path)
