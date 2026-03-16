@@ -4,3 +4,5 @@ numpy
 joblib
 scikit-learn
 tensorflow==2.13.0
+protobuf==3.20.*
+h5py
