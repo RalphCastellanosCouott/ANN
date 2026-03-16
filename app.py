@@ -14,7 +14,7 @@ def load_assets():
     
     # Verificar que los archivos existen
     required_files = {
-        'modelo_credito_final.h5': 'Modelo H5',
+        'modelo_credito.h5': 'Modelo H5',
         'minmax_scaler.joblib': 'Scaler',
         'label_encoders.joblib': 'Label Encoders',
         'pca_model.joblib': 'PCA'
