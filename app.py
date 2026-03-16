@@ -12,19 +12,28 @@ st.set_page_config(page_title="Predictor de Crédito AI", page_icon="💳")
 def load_assets():
     """Carga todos los archivos necesarios para la predicción"""
     try:
-        # Opción 1: Intentar cargar con compilación segura
-        model = load_model('modelo_credito.keras', compile=False)
+        # Opción 2: Usar custom_objects para manejar la incompatibilidad
+        from tensorflow.keras.layers import InputLayer
         
-        # Recompilar el modelo (opcional, si necesitas entrenar más)
-        model.compile(optimizer='adam', 
-                     loss='categorical_crossentropy', 
-                     metrics=['accuracy'])
+        # Definir un InputLayer personalizado que ignore los argumentos problemáticos
+        class CompatibleInputLayer(InputLayer):
+            def __init__(self, **kwargs):
+                # Eliminar argumentos problemáticos
+                kwargs.pop('batch_shape', None)
+                kwargs.pop('optional', None)
+                super().__init__(**kwargs)
+        
+        # Cargar el modelo con el objeto personalizado
+        model = load_model(
+            'modelo_credito.keras',
+            custom_objects={'InputLayer': CompatibleInputLayer},
+            compile=False
+        )
         
         scaler = joblib.load('minmax_scaler.joblib')
         label_encoders = joblib.load('label_encoders.joblib')
         pca = joblib.load('pca_model.joblib')
         
-        # Las features seleccionadas (10 features según tu notebook)
         selected_features = [
             'Num_Bank_Accounts', 'Num_Credit_Card', 'Interest_Rate',
             'Delay_from_due_date', 'Num_of_Delayed_Payment', 'Num_Credit_Inquiries',
@@ -32,7 +41,6 @@ def load_assets():
             'Payment_of_Min_Amount'
         ]
         
-        # Mapa de columnas (inglés a español para mostrar)
         column_map = {
             'Num_Bank_Accounts': 'Num_Cuentas_Bancarias',
             'Num_Credit_Card': 'Num_Tarjetas_Credito',
@@ -50,7 +58,6 @@ def load_assets():
         
     except Exception as e:
         st.error(f"Error cargando archivos: {e}")
-        st.info("Revisa que los archivos .joblib y .keras estén en el directorio correcto.")
         return None, None, None, None, None, None
 
 # Carga de seguridad
