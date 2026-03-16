@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
+import tensorflow as tf
 from tensorflow.keras.models import load_model
 
 # 1. Configuración de la interfaz
@@ -11,7 +12,14 @@ st.set_page_config(page_title="Predictor de Crédito AI", page_icon="💳")
 def load_assets():
     """Carga todos los archivos necesarios para la predicción"""
     try:
-        model = load_model('modelo_credito.keras')  # Cambiado a .keras
+        # Opción 1: Intentar cargar con compilación segura
+        model = load_model('modelo_credito.keras', compile=False)
+        
+        # Recompilar el modelo (opcional, si necesitas entrenar más)
+        model.compile(optimizer='adam', 
+                     loss='categorical_crossentropy', 
+                     metrics=['accuracy'])
+        
         scaler = joblib.load('minmax_scaler.joblib')
         label_encoders = joblib.load('label_encoders.joblib')
         pca = joblib.load('pca_model.joblib')
@@ -39,6 +47,7 @@ def load_assets():
         }
         
         return model, scaler, label_encoders, pca, selected_features, column_map
+        
     except Exception as e:
         st.error(f"Error cargando archivos: {e}")
         st.info("Revisa que los archivos .joblib y .keras estén en el directorio correcto.")
