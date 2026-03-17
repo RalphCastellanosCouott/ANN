@@ -35,7 +35,7 @@ def load_assets():
     
     try:
         # Cargar el modelo H5
-        model = load_model('modelo_credito_final.h5', compile=False)
+        model = load_model('modelo_credito.h5', compile=False)
         
         # Recompilar el modelo (necesario para algunas operaciones)
         model.compile(optimizer='adam', 
