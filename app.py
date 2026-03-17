@@ -2,7 +2,10 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
-from tensorflow.keras.models import load_model
+import tensorflow as tf
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Input, Dense
+from tensorflow.keras.optimizers import Adam
 import os
 
 # 1. Configuración de la interfaz
@@ -14,7 +17,7 @@ def load_assets():
     
     # Verificar que los archivos existen
     required_files = {
-        'modelo_credito.h5': 'Modelo H5',
+        'modelo_credito.h5': 'Modelo H5 (para pesos)',
         'minmax_scaler.joblib': 'Scaler',
         'label_encoders.joblib': 'Label Encoders',
         'pca_model.joblib': 'PCA'
@@ -34,18 +37,38 @@ def load_assets():
         return None, None, None, None, None, None
     
     try:
-        # Cargar el modelo H5
-        model = load_model('modelo_credito.h5', compile=False)
-        
-        # Recompilar el modelo (necesario para algunas operaciones)
-        model.compile(optimizer='adam', 
-                     loss='categorical_crossentropy', 
-                     metrics=['accuracy'])
-        
-        # Cargar los demás archivos
+        # PASO 1: Cargar los archivos auxiliares
         scaler = joblib.load('minmax_scaler.joblib')
         label_encoders = joblib.load('label_encoders.joblib')
         pca = joblib.load('pca_model.joblib')
+        
+        # PASO 2: Reconstruir el modelo manualmente (MISMA ARQUITECTURA que en el notebook)
+        # Input layer con 8 features (salida del PCA)
+        input_layer = Input(shape=(8,), name='input_layer')
+        
+        # Capas ocultas
+        x = Dense(64, activation='relu', name='dense')(input_layer)
+        x = Dense(32, activation='relu', name='dense_1')(x)
+        x = Dense(16, activation='relu', name='dense_2')(x)
+        
+        # Capa de salida con 3 neuronas (softmax para clasificación)
+        output_layer = Dense(3, activation='softmax', name='dense_3')(x)
+        
+        # Crear el modelo
+        model = Model(inputs=input_layer, outputs=output_layer)
+        
+        # PASO 3: Cargar SOLO los pesos (no toda la arquitectura)
+        try:
+            model.load_weights('modelo_credito.h5')
+            st.success("✅ Pesos del modelo cargados correctamente")
+        except Exception as e:
+            st.warning(f"⚠️ No se pudieron cargar los pesos: {e}")
+            st.info("Usando pesos inicializados aleatoriamente (las predicciones no serán precisas)")
+        
+        # Compilar el modelo
+        model.compile(optimizer=Adam(learning_rate=0.001), 
+                     loss='categorical_crossentropy', 
+                     metrics=['accuracy'])
         
         # Las features seleccionadas (en el orden correcto)
         selected_features = [
@@ -111,21 +134,6 @@ with st.form("main_form"):
 
 if submit:
     try:
-        # Mostrar los datos ingresados
-        with st.expander("📋 Datos ingresados", expanded=False):
-            st.json({
-                "Cuentas Bancarias": bank_accounts,
-                "Tarjetas Crédito": credit_cards,
-                "Tasa Interés": interest_rate,
-                "Deuda Pendiente": outstanding_debt,
-                "Antigüedad Crédito": credit_history,
-                "Mix Crédito": credit_mix,
-                "Pago Mínimo": payment_min,
-                "Días Retraso": delay_days,
-                "Pagos Retrasados": delayed_payments,
-                "Consultas Crédito": credit_inquiries
-            })
-        
         # 1. Crear DataFrame con las features seleccionadas
         input_data = pd.DataFrame({
             'Num_Bank_Accounts': [float(bank_accounts)],
@@ -174,9 +182,9 @@ if submit:
         col1, col2, col3 = st.columns(3)
         
         etiquetas = {
-            0: {"nombre": "MALO 🔴", "desc": "Alto riesgo crediticio - No recomendado", "color": "red"},
-            1: {"nombre": "NORMAL 🟡", "desc": "Riesgo crediticio moderado - Evaluar con cuidado", "color": "orange"},
-            2: {"nombre": "BUENO 🟢", "desc": "Bajo riesgo crediticio - Recomendado", "color": "green"}
+            0: {"nombre": "MALO 🔴", "desc": "Alto riesgo crediticio - No recomendado"},
+            1: {"nombre": "NORMAL 🟡", "desc": "Riesgo crediticio moderado - Evaluar con cuidado"},
+            2: {"nombre": "BUENO 🟢", "desc": "Bajo riesgo crediticio - Recomendado"}
         }
         
         with col1:
@@ -188,47 +196,26 @@ if submit:
         with col3:
             st.metric("Nivel de Riesgo", etiquetas[clase]["desc"])
         
-        # Barra de progreso para la probabilidad
-        st.progress(int(probabilidades[clase]) / 100)
-        
-        # Probabilidades detalladas
+        # Mostrar probabilidades
         st.subheader("📊 Distribución de Probabilidades:")
-        prob_df = pd.DataFrame({
-            'Clase': ['Malo (0)', 'Normal (1)', 'Bueno (2)'],
-            'Probabilidad': probabilidades,
-            'Estado': ['🔴' if i == 0 else '🟡' if i == 1 else '🟢' for i in range(3)]
-        })
         
-        # Mostrar como barras horizontales
-        for _, row in prob_df.iterrows():
-            st.write(f"{row['Estado']} **{row['Clase']}**: {row['Probabilidad']:.1f}%")
-            st.progress(int(row['Probabilidad']) / 100)
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Malo", f"{probabilidades[0]:.1f}%", delta_color="inverse")
+        with col2:
+            st.metric("Normal", f"{probabilidades[1]:.1f}%")
+        with col3:
+            st.metric("Bueno", f"{probabilidades[2]:.1f}%")
         
-        # Recomendación final
+        # Recomendación
         st.subheader("💡 Recomendación:")
         if clase == 0:
-            st.error("❌ **NO APROBAR**: El cliente presenta alto riesgo crediticio. Se recomienda rechazar la solicitud o requerir garantías significativas.")
+            st.error("❌ **NO APROBAR**: Cliente con MAL crédito")
         elif clase == 1:
-            st.warning("⚠️ **APROBACIÓN CONDICIONAL**: El cliente tiene riesgo moderado. Se recomienda:\n"
-                      "- Límite de crédito bajo\n"
-                      "- Tasa de interés más alta\n"
-                      "- Revisión periódica")
+            st.warning("⚠️ **APROBACIÓN CONDICIONAL**: Cliente con crédito NORMAL")
         else:
-            st.success("✅ **APROBAR**: El cliente presenta excelente historial crediticio. Se recomienda:\n"
-                      "- Límite de crédito alto\n"
-                      "- Tasa de interés preferencial\n"
-                      "- Ofrecer productos adicionales")
+            st.success("✅ **APROBAR**: Cliente con BUEN crédito")
             
     except Exception as e:
         st.error(f"❌ Error en la predicción: {e}")
         st.write("Detalles del error:", str(e))
-        
-        # Mostrar información de debug
-        with st.expander("🔧 Información de Debug", expanded=False):
-            st.write("Tipo de error:", type(e).__name__)
-            st.write("Datos procesados:")
-            st.write(input_data)
-
-# Footer
-st.markdown("---")
-st.markdown("💡 *Este sistema utiliza un modelo de red neuronal entrenado con datos históricos para predecir el riesgo crediticio.*")
